@@ -1,0 +1,29 @@
+/* You can add global styles to this file, and also import other style files */
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  
+  #invoice-preview, #invoice-preview * {
+    visibility: visible;
+  }
+
+  #invoice-preview {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    transform: scale(1);
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
+  }
+  
+  .no-print {
+    display: none !important;
+  }
+}
