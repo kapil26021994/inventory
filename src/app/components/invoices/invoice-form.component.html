@@ -1,0 +1,351 @@
+<form [formGroup]="invoiceForm" (ngSubmit)="saveInvoice()" novalidate>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <!-- Left Side: Form Details -->
+    <div class="lg:col-span-2 bg-white rounded-lg shadow-md p-4 space-y-6">
+      
+      <!-- Customer, Date & Payment Info -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Customer</label>
+          <div class="relative">
+            <input 
+              type="text" 
+              placeholder="Search by Name or Phone..." 
+              class="w-full p-2 border rounded-md bg-white focus:ring-2 focus:ring-indigo-500 text-slate-800"
+              [class.border-red-500]="invoiceForm.get('customer')?.invalid && invoiceForm.get('customer')?.touched"
+              [value]="customerSearchTerm()"
+              (input)="onCustomerSearch($event)">
+            @if (showCustomerDropdown()) {
+              <div class="absolute top-full left-0 mt-1 w-full bg-white border rounded-lg shadow-xl z-10 max-h-60 overflow-y-auto">
+                @for(customer of filteredCustomers(); track customer.id) {
+                  <div (click)="selectCustomer(customer)" class="p-2 hover:bg-indigo-100 cursor-pointer">
+                    <p class="font-semibold">{{customer.name}}</p>
+                    <p class="text-sm text-slate-600">{{customer.phone}}</p>
+                  </div>
+                }
+                @if (filteredCustomers().length === 0 && customerSearchTerm().length > 2) {
+                   <div (click)="openAddCustomerModal()" class="p-3 hover:bg-indigo-100 cursor-pointer text-center text-indigo-600 font-semibold">
+                     + Add "{{customerSearchTerm()}}" as a new customer
+                   </div>
+                }
+              </div>
+            }
+          </div>
+          @if (invoiceForm.get('customer')?.invalid && invoiceForm.get('customer')?.touched) {
+            <p class="text-red-500 text-xs mt-1">A customer must be selected for the invoice.</p>
+          }
+        </div>
+        <div>
+          <label for="invoiceDate" class="block text-sm font-medium text-slate-700 mb-1">Invoice Date</label>
+          <input type="date" id="invoiceDate" formControlName="date" class="w-full p-2 border rounded-md bg-white focus:ring-2 focus:ring-indigo-500 text-slate-800" [class.border-red-500]="invoiceForm.get('date')?.invalid && invoiceForm.get('date')?.touched">
+          @if (invoiceForm.get('date')?.invalid && invoiceForm.get('date')?.touched) {
+            <p class="text-red-500 text-xs mt-1">Invoice date is required.</p>
+          }
+        </div>
+      </div>
+      
+      <!-- Items Section -->
+      <div>
+        <h3 class="text-lg font-semibold text-slate-800 mb-3">Invoice Items</h3>
+        <div class="space-y-5 p-3" formArrayName="items">
+          @for (item of items.controls; track i; let i = $index) {
+            <div [formGroupName]="i" class="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-4 md:space-y-0 md:flex md:items-end md:gap-4 relative group">
+              
+              <span class="absolute -top-2.5 -left-2.5 bg-indigo-600 text-white h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold ring-4 ring-white">{{ i + 1 }}</span>
+
+              <div class="flex-1 min-w-0">
+                <label class="block text-sm font-medium text-slate-700 mb-1">Product</label>
+                 <div class="relative">
+                    <input 
+                        type="text" 
+                        placeholder="Search product by name or SKU..."
+                        class="w-full p-2 border rounded-md bg-white text-slate-800 focus:ring-2 focus:ring-indigo-500"
+                        [class.border-red-500]="item.get('product')?.invalid && item.get('product')?.touched"
+                        [value]="productSearchTerms()[i]"
+                        (input)="onProductSearch($event, i)">
+                    @if (activeProductSearchIndex() === i && (filteredProducts(i).length > 0 || (productSearchTerms()[i] || '').length > 2)) {
+                        <div class="absolute top-full left-0 mt-1 w-full bg-white border rounded-lg shadow-xl z-10 max-h-48 overflow-y-auto">
+                            @for (product of filteredProducts(i); track product.id) {
+                                <div (click)="selectProduct(product, i)" class="p-2 hover:bg-indigo-100 cursor-pointer">
+                                    <p class="font-semibold">{{ product.name }}</p>
+                                    <p class="text-xs text-slate-500">SKU: {{ product.sku }} | Stock: {{product.quantity}}</p>
+                                </div>
+                            }
+                            @if (filteredProducts(i).length === 0) {
+                               <div (click)="openAddProductModal(i)" class="p-3 hover:bg-indigo-100 cursor-pointer text-center text-indigo-600 font-semibold">
+                                 + Add "{{productSearchTerms()[i]}}" as a new product
+                               </div>
+                            }
+                        </div>
+                    }
+                 </div>
+                 @if (item.get('product')?.invalid && item.get('product')?.touched) {
+                  <p class="text-red-500 text-xs mt-1">A product must be selected.</p>
+                 }
+                 @if(item.get('product')?.value) {
+                    <!-- <p class="text-xs text-slate-500 mt-1">
+                        In Stock: {{ item.get('product')?.value.quantity }}
+                    </p> -->
+                 }
+              </div>
+              
+              <div class="grid grid-cols-2 sm:grid-cols-4 md:flex md:items-end gap-3">
+                  <div>
+                      <label class="block text-sm font-medium text-slate-700 mb-1">Qty</label>
+                      <input type="number" formControlName="cartQuantity" class="w-20 p-2 border rounded-md bg-white text-slate-800 text-center" min="1" [class.border-red-500]="item.get('cartQuantity')?.invalid && item.get('cartQuantity')?.touched">
+                      @if (item.get('cartQuantity')?.invalid && item.get('cartQuantity')?.touched) {
+                        <p class="text-red-500 text-xs mt-1">Min qty is 1.</p>
+                      }
+                  </div>
+                  <div>
+                      <label class="block text-sm font-medium text-slate-700 mb-1">Price</label>
+                      <input type="number" formControlName="sellingPrice" class="w-28 p-2 border rounded-md bg-white text-slate-800" min="0" [class.border-red-500]="item.get('sellingPrice')?.invalid && item.get('sellingPrice')?.touched">
+                      @if (item.get('sellingPrice')?.invalid && item.get('sellingPrice')?.touched) {
+                        <p class="text-red-500 text-xs mt-1">Price is required.</p>
+                      }
+                  </div>
+                  <div>
+                      <label class="block text-sm font-medium text-slate-700 mb-1">Disc %</label>
+                      <input type="number" formControlName="discountPercent" class="w-20 p-2 border rounded-md bg-white text-slate-800" min="0" max="100" [class.border-red-500]="item.get('discountPercent')?.invalid && item.get('discountPercent')?.touched">
+                       @if (item.get('discountPercent')?.invalid && item.get('discountPercent')?.touched) {
+                        <p class="text-red-500 text-xs mt-1">Must be 0-100.</p>
+                      }
+                  </div>
+                  <div class="text-right sm:col-span-2 md:col-auto md:w-28">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Total</label>
+                    <p class="font-semibold text-slate-800 text-lg whitespace-nowrap pt-2">
+                        {{ ((item.value.sellingPrice * item.value.cartQuantity) - ((item.value.sellingPrice * item.value.cartQuantity * item.value.discountPercent) / 100)) | currency:'INR' }}
+                    </p>
+                  </div>
+              </div>
+
+              @if (items.controls.length > 1) {
+                <button type="button" (click)="removeItem(i)" class="absolute -top-2.5 -right-2.5 text-red-500 bg-white rounded-full p-0.5 shadow-md hover:bg-red-500 hover:text-white transition-all opacity-0 group-hover:opacity-100 md:opacity-100">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                  </svg>
+                </button>
+              }
+            </div>
+          }
+        </div>
+        @if (items.invalid && items.touched && items.errors?.['minlength']) {
+             <p class="text-red-500 text-sm mt-2">Please add at least one item to the invoice.</p>
+        }
+        <button type="button" (click)="addItem()" class="mt-4 px-3 py-1.5 text-sm bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 font-semibold flex items-center gap-1">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          </svg>
+          Add Another Item
+        </button>
+      </div>
+
+      <!-- Payment Details -->
+      <div class="pt-6 border-t border-slate-200">
+          <h3 class="text-lg font-semibold text-slate-800 mb-3">Payment Details</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                  <label for="amountPaid" class="block text-sm font-medium text-slate-700 mb-1">Amount Paid</label>
+                  <input id="amountPaid" type="number" formControlName="amountPaid" (blur)="roundAndSync('amountPaid')" step="1" class="w-full p-2 border rounded-md bg-white focus:ring-2 focus:ring-indigo-500 text-slate-800">
+              </div>
+              <div>
+                  <label for="dueAmount" class="block text-sm font-medium text-slate-700 mb-1">Due Amount</label>
+                  <input id="dueAmount" type="number" formControlName="dueAmount" (blur)="roundAndSync('dueAmount')" step="1" class="w-full p-2 border rounded-md bg-white focus:ring-2 focus:ring-indigo-500 text-slate-800">
+              </div>
+          </div>
+      </div>
+
+    </div>
+
+    <!-- Right Side: Totals & Actions -->
+    <div class="lg:col-span-1">
+        <div class="bg-white rounded-lg shadow-md p-4 space-y-4 lg:sticky lg:top-6">
+            <h3 class="text-lg font-semibold text-slate-800 border-b pb-2">Summary</h3>
+            <div class="space-y-2 text-slate-600">
+              <div class="flex justify-between"><span>Subtotal</span> <span class="font-medium text-slate-800">{{ totals().subtotal | currency:'INR' }}</span></div>
+              <div class="flex justify-between"><span>Discount</span> <span class="font-medium text-green-600">- {{ totals().discount | currency:'INR' }}</span></div>
+              <div class="flex justify-between text-xl font-bold mt-2 pt-2 border-t text-slate-900"><span>Total</span> <span>{{ totals().total | currency:'INR' }}</span></div>
+            </div>
+
+            <div class="pt-2">
+                <select formControlName="paymentMode" class="w-full p-2 border rounded-md bg-white focus:ring-2 focus:ring-indigo-500 text-slate-800">
+                    <option>Cash</option>
+                    <option>UPI</option>
+                    <option>Card</option>
+                </select>
+            </div>
+            
+             <div class="flex justify-between text-lg font-bold mt-2 pt-2 border-t" [class]="balance() >= 0.01 ? 'text-red-600' : 'text-green-600'">
+                <span>Due Amount</span>
+                <span>{{ balance() | currency:'INR' }}</span>
+            </div>
+             <!-- Action Buttons -->
+             <div class="mt-6 pt-4 border-t space-y-2">
+                <button type="submit" class="w-full inline-flex items-center justify-center px-3 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-indigo-300 text-base font-medium">
+                  {{ isEditMode() ? 'Update Invoice' : 'Save Invoice' }}
+                </button>
+                <div class="grid grid-cols-2 gap-2">
+                    <button type="button" (click)="downloadInvoicePdf()" class="w-full inline-flex items-center justify-center gap-1.5 text-center px-3 py-1.5 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 text-sm font-medium">
+                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                        </svg>
+                        <span>Download</span>
+                    </button>
+                    <button type="button" (click)="prepareShare()" [disabled]="isPreparingShare()" class="w-full inline-flex items-center justify-center gap-1.5 text-center px-3 py-1.5 bg-green-100 text-green-700 rounded-md hover:bg-green-200 text-sm font-medium disabled:bg-green-300 disabled:text-green-500">
+                        @if (isPreparingShare()) {
+                            <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>Preparing...</span>
+                        } @else {
+                            <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zM12.04 20.12c-1.48 0-2.91-.4-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31c-.82-1.31-1.26-2.83-1.26-4.36 0-4.54 3.7-8.24 8.24-8.24 4.54 0 8.24 3.7 8.24 8.24S16.58 20.12 12.04 20.12zM17.29 14.48c-.28-.14-1.64-.81-1.9-0.9s-.45-.14-.64.14-.72.9-.88 1.08-.32.19-.59.05c-.28-.14-1.17-.43-2.23-1.38s-1.72-1.57-1.93-1.84c-.2-.28-.02-.43.12-.57.13-.13.28-.32.42-.49.14-.17.19-.28.28-.47s.05-.37-.02-.52c-.07-.14-.64-1.52-.88-2.09-.24-.57-.48-.48-.64-.48-.17 0-.36-.02-.54-.02s-.47.07-.72.36c-.25.28-.95.93-.95 2.26s.98 2.62 1.1 2.8c.14.17 1.9 2.91 4.6 4.07.64.28 1.15.45 1.54.58.55.18 1.05.16 1.45.1.44-.07 1.64-.67 1.87-1.3.24-.63.24-1.17.17-1.3s-.28-.24-.55-.38z"/>
+                            </svg>
+                            <span>Share</span>
+                        }
+                    </button>
+                </div>
+                <a routerLink="/invoices" class="w-full inline-flex items-center justify-center text-center px-3 py-1.5 bg-slate-200 text-slate-700 rounded-md hover:bg-slate-300 text-sm font-medium">Cancel</a>
+             </div>
+        </div>
+    </div>
+  </div>
+</form>
+
+<!-- Hidden Invoice for PDF Generation -->
+<div class="fixed -left-[9999px] top-0 w-[800px] bg-white text-black p-8 font-sans" #invoicePreview>
+    <!-- Invoice Header -->
+    <div class="flex justify-between items-start mb-8">
+        <div>
+            <h1 class="text-3xl font-bold">Advika collection</h1>
+        </div>
+        <div class="text-right">
+            <p><strong>Invoice No:</strong> {{ isEditMode() ? invoiceId() : draftInvoiceId }}</p>
+            <p><strong>Date:</strong> {{ invoiceForm.get('date')?.value | date:'mediumDate' }}</p>
+        </div>
+    </div>
+    <!-- Bill From / Bill To -->
+    <div class="flex justify-between text-base mb-6">
+        <div>
+            <p class="font-bold mb-1">Bill From:</p>
+            <p>Advika collection</p>
+            <p>71,C saket dham,indore</p>
+            <p>8602689698</p>
+        </div>
+        <div class="text-right">
+            <p class="font-bold mb-1">Bill To:</p>
+            <p>{{ invoiceForm.get('customer')?.value?.name || 'N/A' }}</p>
+            <p>{{ invoiceForm.get('customer')?.value?.phone || '' }}</p>
+        </div>
+    </div>
+    <!-- Items Table -->
+    <table class="w-full text-base mb-6">
+        <thead>
+        <tr class="border-b-2 border-gray-400">
+            <th class="text-left font-semibold py-2">Item</th>
+            <th class="text-center font-semibold px-2 py-2">Qty</th>
+            <th class="text-right font-semibold px-2 py-2">Price</th>
+            <th class="text-right font-semibold px-2 py-2">Total</th>
+        </tr>
+        </thead>
+        <tbody>
+        @for (item of items.controls; track i; let i = $index) {
+            <tr class="border-b border-gray-200">
+            <td class="py-2 pr-2">{{ item.value.product?.name }}</td>
+            <td class="text-center px-2 py-2">{{ item.value.cartQuantity }}</td>
+            <td class="text-right px-2 py-2 whitespace-nowrap">{{ item.value.sellingPrice | currency:'INR' }}</td>
+            <td class="text-right px-2 py-2 whitespace-nowrap">{{ (item.value.sellingPrice * item.value.cartQuantity) | currency:'INR' }}</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+    <!-- Totals Section -->
+    <div class="flex justify-end">
+        <div class="w-full max-w-sm text-base">
+            <div class="flex justify-between py-1"><span>Subtotal:</span> <span>{{ totals().subtotal | currency:'INR' }}</span></div>
+            <div class="flex justify-between py-1"><span>Discount:</span> <span class="text-green-600">- {{ totals().discount | currency:'INR' }}</span></div>
+            <div class="flex justify-between py-2 mt-1 font-bold text-xl border-t-2 border-gray-400"><span>Grand Total:</span> <span>{{ totals().total | currency:'INR' }}</span></div>
+            <div class="flex justify-between py-1 border-t"><span>Amount Paid:</span> <span>{{ invoiceForm.get('amountPaid')?.value | currency:'INR' }}</span></div>
+            <div class="flex justify-between py-1 font-semibold" [class]="balance() >= 0.01 ? 'text-red-700' : 'text-black'"><span>{{ balance() >= 0.01 ? 'Balance Due:' : 'Change:' }}</span> <span>{{ (balance() >= 0.01 ? balance() : -balance()) | currency:'INR' }}</span></div>
+            <div class="flex justify-between py-1"><span>Payment Mode:</span> <span>{{ invoiceForm.get('paymentMode')?.value }}</span></div>
+        </div>
+    </div>
+    <!-- Footer -->
+    <div class="text-center mt-8 text-sm text-gray-500">
+        <p>Thank you for your purchase!</p>
+        <p>Visit us again.</p>
+    </div>
+</div>
+
+<!-- Share Confirmation Modal -->
+@if (shareableFile()) {
+    <div class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-lg shadow-2xl w-full max-w-sm text-center p-6">
+            <h3 class="text-lg font-semibold text-slate-800">Ready to Share</h3>
+            <p class="text-slate-600 mt-2 mb-6">Your invoice image is ready. Click below to open the share menu.</p>
+            <div class="flex justify-center gap-4">
+                <button (click)="clearShare()" class="px-6 py-2 bg-slate-200 rounded-lg hover:bg-slate-300">Cancel</button>
+                <button (click)="executeShare()" class="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600">Share Now</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Quick Add Customer Modal -->
+@if (showAddCustomerModal()) {
+  <div class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+    <form [formGroup]="newCustomerForm" (ngSubmit)="saveNewCustomer()" class="bg-white rounded-lg shadow-2xl w-full max-w-md">
+      <div class="p-4 border-b">
+        <h3 class="text-xl font-semibold">Add New Customer</h3>
+      </div>
+      <div class="p-6 space-y-4">
+        <div>
+            <label class="text-sm text-slate-600">Full Name</label>
+            <input formControlName="name" placeholder="Customer Name" class="w-full p-2 border rounded bg-white">
+        </div>
+        <div>
+            <label class="text-sm text-slate-600">Phone Number</label>
+            <input formControlName="phone" placeholder="10-digit Phone" class="w-full p-2 border rounded bg-white">
+        </div>
+         <div>
+            <label class="text-sm text-slate-600">Email (Optional)</label>
+            <input formControlName="email" type="email" placeholder="customer@example.com" class="w-full p-2 border rounded bg-white">
+        </div>
+      </div>
+      <div class="p-4 bg-slate-50 flex justify-end gap-4 rounded-b-lg">
+        <button type="button" (click)="closeAddCustomerModal()" class="px-4 py-2 bg-slate-200 rounded-lg hover:bg-slate-300">Cancel</button>
+        <button type="submit" [disabled]="newCustomerForm.invalid" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-indigo-300">Save & Select</button>
+      </div>
+    </form>
+  </div>
+}
+
+<!-- Quick Add Product Modal -->
+@if (showAddProductModal()) {
+  <div class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+    <form [formGroup]="newProductForm" (ngSubmit)="saveNewProduct()" class="bg-white rounded-lg shadow-2xl w-full max-w-lg">
+      <div class="p-4 border-b">
+        <h3 class="text-xl font-semibold">Add New Product</h3>
+      </div>
+      <div class="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <input formControlName="name" placeholder="Product Name" class="w-full p-2 border rounded bg-white">
+          <input formControlName="sku" placeholder="SKU / Barcode" class="w-full p-2 border rounded bg-white">
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <input formControlName="category" placeholder="Category" class="w-full p-2 border rounded bg-white">
+            <input formControlName="sellingPrice" type="number" placeholder="Selling Price" class="w-full p-2 border rounded bg-white">
+        </div>
+        <div>
+            <label class="text-sm text-slate-600">Initial Quantity in Stock</label>
+            <input formControlName="quantity" type="number" placeholder="Quantity" class="w-full p-2 border rounded bg-white">
+        </div>
+      </div>
+      <div class="p-4 bg-slate-50 flex justify-end gap-4 rounded-b-lg">
+        <button type="button" (click)="closeAddProductModal()" class="px-4 py-2 bg-slate-200 rounded-lg hover:bg-slate-300">Cancel</button>
+        <button type="submit" [disabled]="newProductForm.invalid" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-indigo-300">Save & Select</button>
+      </div>
+    </form>
+  </div>
+}

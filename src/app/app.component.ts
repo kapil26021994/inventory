@@ -1,217 +1,46 @@
-import { Component, ChangeDetectionStrategy, signal, computed } from '@angular/core';
+
+import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { RouterOutlet, ActivationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
+import { filter, map } from 'rxjs/operators';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { HeaderComponent } from './components/layout/header.component';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { toObservable } from '@angular/core/rxjs-interop';
-import { Observable } from 'rxjs';
 
-export interface Sender {
-  name: string;
-  mobile: string;
-  address: string;
-}
-
-export interface Client {
-  name: string;
-  mobile: string;
-  address: string;
-}
-
-export interface Item {
-  description: string;
-  qty: number;
-  rate: number;
-}
-
-export interface Invoice {
-  invoiceNumber: string;
-  currency: string;
-  dateIssued: string;
-  dueDate: string;
-  sender: Sender;
-  client: Client;
-  items: Item[];
-  taxRate: number; // as a percentage
-  notes: string;
-}
-
+// ...existing code...
 @Component({
   selector: 'app-root',
-  standalone: true,
-  imports: [CommonModule, FormsModule],
   templateUrl: './app.component.html',
-  styleUrl: './app.component.scss',
+  standalone: true,
+  imports: [
+    CommonModule,
+    RouterOutlet,
+    RouterLink,
+    RouterLinkActive,
+    HeaderComponent
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
+// ...existing code...
 export class AppComponent {
-i: any;
-  private getTodayString(): string {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
-  }
+  private router = inject(Router);
 
-  private readonly initialInvoice: Invoice = {
-    invoiceNumber: 'INV-2024-01',
-    currency: 'USD',
-    dateIssued: this.getTodayString(),
-    dueDate: this.getTodayString(),
-    sender: {
-      name: 'Advika Collection',
-      mobile: '7898546131',
-      address: '71,C Suvidhi Nagar,Indore',
-    },
-    client: {
-      name: '',
-      mobile: '',
-      address: '',
-    },
-    items: [
-      { description: 'Web Design Consultation', qty: 4, rate: 150.00 },
-      { description: 'UI Implementation', qty: 10, rate: 85.00 },
-    ],
-    taxRate: 0,
-    notes: 'Thank you for your business. Please contact us for any questions regarding this invoice.',
-  };
+  private routerEvents$ = this.router.events.pipe(
+    filter((event): event is ActivationEnd => event instanceof ActivationEnd),
+    map(event => event.snapshot.title)
+  );
 
-  invoice = signal<Invoice>(this.initialInvoice);
+  currentPageTitle = toSignal(this.routerEvents$, { initialValue: 'Dashboard' });
 
-  subtotal = computed(() => {
-    return this.invoice().items.reduce((acc, item) => acc + (item.qty || 0) * (item.rate || 0), 0);
-  });
+  // This is a simplified way to handle SVG icons without a full library. In a real app, use a proper sanitizer or an icon library component.
+  sanitizer = { bypassSecurityTrustHtml: (html: string) => html };
 
-  taxAmount = computed(() => {
-    return this.subtotal() * (this.invoice().taxRate / 100);
-  });
-
-  total = computed(() => {
-    return this.subtotal() + this.taxAmount();
-  });
-
-  // Expose as observables for template compatibility with async pipe
-  invoice$: Observable<Invoice> = toObservable(this.invoice);
-  subtotal$: Observable<number> = toObservable(this.subtotal);
-  taxAmount$: Observable<number> = toObservable(this.taxAmount);
-  total$: Observable<number> = toObservable(this.total);
-
-  addItem(): void {
-    this.invoice.update(currentInvoice => ({
-      ...currentInvoice,
-      items: [...currentInvoice.items, { description: '', qty: 1, rate: 0 }],
-    }));
-  }
-
-  removeItem(index: number): void {
-    this.invoice.update(currentInvoice => ({
-      ...currentInvoice,
-      items: currentInvoice.items.filter((_, i) => i !== index),
-    }));
-  }
-
-  updateField<K extends keyof Invoice>(field: K, value: Invoice[K]) {
-    this.invoice.update(currentInvoice => ({ ...currentInvoice, [field]: value }));
-  }
-
-  updateSenderField(field: keyof Sender, event: Event) {
-    const value = (event.target as HTMLInputElement).value;
-    this.invoice.update(currentInvoice => ({
-      ...currentInvoice,
-      sender: { ...currentInvoice.sender, [field]: value },
-    }));
-  }
-
-  updateClientField(field: keyof Client, event: Event) {
-    const value = (event.target as HTMLInputElement).value;
-    this.invoice.update(currentInvoice => ({
-      ...currentInvoice,
-      client: { ...currentInvoice.client, [field]: value },
-    }));
-  }
-
-  updateItem(index: number, field: keyof Item, event: Event) {
-    const inputElement = event.target as HTMLInputElement;
-    const value = inputElement.value;
-
-    this.invoice.update(invoice => {
-      const newItems = [...invoice.items];
-      const itemToUpdate = { ...newItems[index] };
-
-      if (field === 'description') {
-        itemToUpdate.description = value;
-      } else {
-        const numericValue = parseFloat(value);
-        itemToUpdate[field] = isNaN(numericValue) ? 0 : numericValue;
-      }
-
-      newItems[index] = itemToUpdate;
-      return { ...invoice, items: newItems };
-    });
-  }
-
-  async downloadAsPdf(): Promise<void> {
-    const jsPDF = (await import('jspdf')).jsPDF;
-    const html2canvas = (await import('html2canvas')).default;
-    const element = document.getElementById('invoice-preview');
-    if (!element) return;
-    const canvas = await html2canvas(element, { scale: 2, useCORS: true });
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
-    // Calculate width/height to fit A4
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const imgWidth = pageWidth;
-    const imgHeight = canvas.height * (imgWidth / canvas.width);
-    pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
-    pdf.save('invoice.pdf');
-  }
-
-  formatDate(dateString: string): string {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    const timeZoneOffset = date.getTimezoneOffset() * 60000;
-    const adjustedDate = new Date(date.valueOf() + timeZoneOffset);
-
-    // FIX: Corrected typo from `toLocaleDateDateString` to `toLocaleDateString`.
-    return adjustedDate.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  }
-
-  formatCurrency(amount: number): string {
-    return new Intl.NumberFormat('en-US', {
-      style: 'decimal',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount);
-  }
-async shareInvoiceMobile() {
-  const jsPDF = (await import('jspdf')).jsPDF;
-  const html2canvas = (await import('html2canvas')).default;
-
-  const element = document.getElementById('invoice-preview');
-  if (!element) return;
-
-  const canvas = await html2canvas(element, { scale: 2 });
-  const imgData = canvas.toDataURL('image/png');
-
-  const pdf = new jsPDF('p', 'pt', 'a4');
-  pdf.addImage(imgData, 'PNG', 0, 0, 595, 842);
-
-  const blob = pdf.output('blob');
-
-  if ((navigator as any).share) {
-    const file = new File([blob], 'invoice.pdf', {
-      type: 'application/pdf'
-    });
-
-    await (navigator as any).share({
-      files: [file],
-      title: 'Invoice',
-      text: 'Invoice PDF'
-    });
-  } else {
-    alert('Direct file sharing works only on mobile');
-  }
-}
-
+  navItems = signal([
+      { name: 'Dashboard', path: '/dashboard', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />' },
+      { name: 'POS Terminal', path: '/pos', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />' },
+      { name: 'Products', path: '/products', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />' },
+      { name: 'Invoices', path: '/invoices', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />' },
+      { name: 'Customers', path: '/customers', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />' },
+      { name: 'Reports', path: '/reports', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />' },
+      { name: 'Settings', path: '/settings', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />' }
+  ]);
 }
