@@ -1,8 +1,14 @@
-import { Product } from './product.model';
 import { Customer } from './customer.model';
 
-export interface CartItem extends Product {
+export interface CartItem {
+  id: string; // Product ID for standard items, or a unique ID for custom ones
+  name: string;
   cartQuantity: number;
+  sellingPrice: number;
+  discountPercent: number;
+  isCustom: boolean;
+  sku?: string;
+  imageUrl?: string;
 }
 
 export interface Invoice {

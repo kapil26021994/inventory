@@ -15,7 +15,7 @@ export class CustomerService {
       const newCustomer: Customer = {
           ...customer,
           id: `cust-${Date.now()}`,
-          purchaseHistory: []
+          purchaseHistory: [],
       };
       this.customers.update(customers => [...customers, newCustomer]);
       return newCustomer;

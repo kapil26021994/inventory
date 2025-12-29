@@ -1,4 +1,3 @@
-
 import { Injectable, signal } from '@angular/core';
 import { Product } from '../models/product.model';
 
@@ -15,8 +14,10 @@ export class ProductService {
   
   products = signal<Product[]>(this.initialProducts);
 
-  addProduct(product: Product) {
-    this.products.update(products => [...products, { ...product, id: `prod-${Date.now()}` }]);
+  addProduct(product: Omit<Product, 'id'>): Product {
+    const newProduct: Product = { ...product, id: `prod-${Date.now()}` };
+    this.products.update(products => [...products, newProduct]);
+    return newProduct;
   }
 
   updateProduct(updatedProduct: Product) {
@@ -31,9 +32,9 @@ export class ProductService {
     return this.products().find(p => p.id === id);
   }
 
-  updateStock(productId: string, quantitySold: number) {
+  updateStock(productId: string, quantityChange: number) {
     this.products.update(products => products.map(p => 
-        p.id === productId ? { ...p, quantity: p.quantity - quantitySold } : p
+        p.id === productId ? { ...p, quantity: p.quantity + quantityChange } : p
     ));
   }
 }

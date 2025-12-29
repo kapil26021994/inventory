@@ -34,6 +34,7 @@ export class InvoiceFormComponent implements OnInit {
 
   invoiceForm: FormGroup = this.fb.group({
     customer: [null, Validators.required],
+    phone: ['', Validators.pattern('^[0-9]{10}$')],
     date: [new Date().toISOString().split('T')[0], Validators.required],
     paymentMode: ['Cash' as const, Validators.required],
     items: this.fb.array([], [Validators.required, Validators.minLength(1)]),
@@ -85,7 +86,7 @@ export class InvoiceFormComponent implements OnInit {
     this.invoiceForm.get('items')!.valueChanges.pipe(startWith(this.invoiceForm.get('items')!.value))
   );
 
-  private amountPaid = toSignal(
+  private amountPaidSignal = toSignal(
       this.invoiceForm.get('amountPaid')!.valueChanges.pipe(startWith(this.invoiceForm.get('amountPaid')!.value))
   );
 
@@ -110,11 +111,13 @@ export class InvoiceFormComponent implements OnInit {
     const total = subtotal - totalDiscount;
     return { subtotal, discount: totalDiscount, total };
   });
+
+  roundedTotal = computed(() => Math.round(this.totals().total));
   
   balance = computed(() => {
-    const roundedTotal = Math.round(this.totals().total);
-    const paid = Number(this.amountPaid()) || 0;
-    return roundedTotal - paid;
+    const total = this.roundedTotal();
+    const paid = Number(this.amountPaidSignal()) || 0;
+    return total - paid;
   });
 
   ngOnInit() {
@@ -129,27 +132,45 @@ export class InvoiceFormComponent implements OnInit {
       this.addItem(); // Start with one empty item line
     }
 
-    // When items change, reset payment fields to match the new rounded total.
+    // When items change, recalculate `dueAmount` based on the new total and the existing `amountPaid`.
+    // This preserves any payment amount the user has entered and prevents the "jumping input" bug.
     this.invoiceForm.get('items')?.valueChanges.subscribe(() => {
-        const roundedTotal = Math.round(this.totals().total);
-        this.invoiceForm.patchValue({
-          amountPaid: roundedTotal,
-          dueAmount: 0
-        }, { emitEvent: false });
+      const total = this.roundedTotal();
+      const paid = this.invoiceForm.get('amountPaid')?.value || 0;
+      const due = total - paid;
+      
+      // Update `dueAmount` silently so it doesn't trigger its own valueChanges subscription and start a loop.
+      if (this.invoiceForm.get('dueAmount')?.value !== due) {
+        this.invoiceForm.get('dueAmount')?.patchValue(due, { emitEvent: false });
+      }
     });
 
     // When amountPaid is edited by user, update dueAmount
     this.invoiceForm.get('amountPaid')?.valueChanges.subscribe(paid => {
-      const roundedTotal = Math.round(this.totals().total);
-      const due = roundedTotal - (paid || 0);
-      this.invoiceForm.get('dueAmount')?.patchValue(due, { emitEvent: false });
+      const total = this.roundedTotal();
+      const due = total - (paid || 0);
+      if (this.invoiceForm.get('dueAmount')?.value !== due) {
+        this.invoiceForm.get('dueAmount')?.patchValue(due, { emitEvent: false });
+      }
     });
       
     // When dueAmount is edited by user, update amountPaid
     this.invoiceForm.get('dueAmount')?.valueChanges.subscribe(due => {
-      const roundedTotal = Math.round(this.totals().total);
-      const paid = roundedTotal - (due || 0);
-      this.invoiceForm.get('amountPaid')?.patchValue(paid, { emitEvent: false });
+      const total = this.roundedTotal();
+      const paid = total - (due || 0);
+      if (this.invoiceForm.get('amountPaid')?.value !== paid) {
+        // This MUST emit to update the amountPaidSignal and thus the balance computed signal.
+        this.invoiceForm.get('amountPaid')?.patchValue(paid);
+      }
+    });
+
+    // Sync phone input with the customer object in the form
+    this.invoiceForm.get('phone')?.valueChanges.subscribe(phone => {
+        const customerControl = this.invoiceForm.get('customer');
+        if (customerControl?.value) {
+            const updatedCustomer = { ...customerControl.value, phone: phone || 'N/A' };
+            customerControl.setValue(updatedCustomer, { emitEvent: false });
+        }
     });
   }
   
@@ -167,25 +188,38 @@ export class InvoiceFormComponent implements OnInit {
         date: new Date(invoice.date).toISOString().split('T')[0],
         paymentMode: invoice.paymentMode,
         amountPaid: roundedAmountPaid,
-        dueAmount: dueAmount
+        dueAmount: dueAmount,
+        phone: invoice.customer.phone === 'N/A' ? '' : invoice.customer.phone
     }, { emitEvent: false }); // Prevent triggering valueChanges on initial load
     this.selectCustomer(invoice.customer);
     
     const itemFGs = invoice.items.map(item => {
-        const product = this.productService.getProductById(item.id);
-        if(product) {
-            this.productSearchTerms.update(terms => [...terms, product.name]);
-            return this.fb.group({
-                product: [product, Validators.required],
+        let formGroup: FormGroup | null = null;
+        if (item.isCustom) {
+            this.productSearchTerms.update(terms => [...terms, item.name]);
+            const productControlValue = { id: item.id, name: item.name, isCustom: true };
+            formGroup = this.fb.group({
+                product: [productControlValue, Validators.required],
                 cartQuantity: [item.cartQuantity, [Validators.required, Validators.min(1)]],
                 sellingPrice: [item.sellingPrice, [Validators.required, Validators.min(0)]],
                 discountPercent: [item.discountPercent, [Validators.min(0), Validators.max(100)]]
             });
+        } else {
+            const product = this.productService.getProductById(item.id);
+            if(product) {
+                this.productSearchTerms.update(terms => [...terms, product.name]);
+                formGroup = this.fb.group({
+                    product: [product, Validators.required],
+                    cartQuantity: [item.cartQuantity, [Validators.required, Validators.min(1)]],
+                    sellingPrice: [item.sellingPrice, [Validators.required, Validators.min(0)]],
+                    discountPercent: [item.discountPercent, [Validators.min(0), Validators.max(100)]]
+                });
+            }
         }
-        return null;
+        return formGroup;
     }).filter(fg => fg !== null) as FormGroup[];
     
-    this.invoiceForm.setControl('items', this.fb.array(itemFGs), { emitEvent: false }); // Prevent triggering valueChanges on initial load
+    this.invoiceForm.setControl('items', this.fb.array(itemFGs), { emitEvent: false });
   }
 
   createItem(): FormGroup {
@@ -220,12 +254,34 @@ export class InvoiceFormComponent implements OnInit {
     const term = (event.target as HTMLInputElement).value;
     this.customerSearchTerm.set(term);
     this.showCustomerDropdown.set(term.length > 0);
+    this.selectedCustomer.set(null);
+    this.invoiceForm.get('customer')?.setValue(null);
+    this.invoiceForm.get('phone')?.setValue('');
+  }
+
+  onCustomerInputBlur() {
+    setTimeout(() => {
+      if (this.showCustomerDropdown()) {
+        if (!this.selectedCustomer() && this.customerSearchTerm().trim()) {
+          const guestCustomer: Customer = {
+            id: `guest-${Date.now()}`,
+            name: this.customerSearchTerm().trim(),
+            phone: 'N/A',
+            purchaseHistory: []
+          };
+          this.selectCustomer(guestCustomer);
+          this.invoiceForm.patchValue({ phone: '' });
+        }
+        this.showCustomerDropdown.set(false);
+      }
+    }, 200);
   }
 
   selectCustomer(customer: Customer) {
     this.selectedCustomer.set(customer);
     this.invoiceForm.get('customer')?.setValue(customer);
     this.customerSearchTerm.set(customer.name);
+    this.invoiceForm.patchValue({ phone: customer.phone === 'N/A' ? '' : customer.phone });
     this.showCustomerDropdown.set(false);
   }
 
@@ -258,12 +314,36 @@ export class InvoiceFormComponent implements OnInit {
   }
 
   onProductSearch(event: Event, index: number) {
+    const item = this.items.at(index) as FormGroup;
+    item.get('product')?.setValue(null); // Clear previous selection
+
     const term = (event.target as HTMLInputElement).value;
     this.productSearchTerms.update(terms => {
         terms[index] = term;
         return [...terms];
     });
     this.activeProductSearchIndex.set(index);
+  }
+  
+  onProductInputBlur(index: number) {
+    // Use a small timeout to allow a click on the dropdown to register before hiding it.
+    setTimeout(() => {
+        if (this.activeProductSearchIndex() === index) {
+            const item = this.items.at(index) as FormGroup;
+            const searchTerm = this.productSearchTerms()[index] || '';
+            
+            // If no product is selected and there's text, treat it as a custom item.
+            if (!item.get('product')?.value && searchTerm.trim()) {
+                const customProduct = { 
+                    id: `custom-${Date.now()}-${index}`,
+                    name: searchTerm.trim(), 
+                    isCustom: true 
+                };
+                item.patchValue({ product: customProduct });
+            }
+            this.activeProductSearchIndex.set(null); // Hide dropdown
+        }
+    }, 200);
   }
 
   selectProduct(product: Product, index: number) {
@@ -320,7 +400,7 @@ export class InvoiceFormComponent implements OnInit {
         imageUrl: imageUrl,
     };
 
-    const newProduct :any= this.productService.addProduct(productData);
+    const newProduct = this.productService.addProduct(productData);
     const itemIndex = this.addProductItemIndex();
     if (itemIndex !== null) {
         this.selectProduct(newProduct, itemIndex);
@@ -339,12 +419,33 @@ export class InvoiceFormComponent implements OnInit {
     
     const invoiceItems: CartItem[] = formValue.items
       .filter((item: any) => item.product)
-      .map((item: any) => ({
-        ...item.product,
-        cartQuantity: Number(item.cartQuantity) || 1,
-        sellingPrice: Number(item.sellingPrice) || 0,
-        discountPercent: Number(item.discountPercent) || 0,
-      }));
+      .map((item: any): CartItem => {
+        const productValue = item.product;
+        if (productValue.isCustom) {
+            return {
+                id: productValue.id,
+                name: productValue.name,
+                cartQuantity: Number(item.cartQuantity) || 1,
+                sellingPrice: Number(item.sellingPrice) || 0,
+                discountPercent: Number(item.discountPercent) || 0,
+                isCustom: true,
+                sku: 'N/A',
+                imageUrl: `https://picsum.photos/seed/${productValue.name}/400/400`
+            };
+        } else {
+            const product: Product = productValue;
+            return {
+                id: product.id,
+                name: product.name,
+                cartQuantity: Number(item.cartQuantity) || 1,
+                sellingPrice: Number(item.sellingPrice) || 0,
+                discountPercent: Number(item.discountPercent) || 0,
+                isCustom: false,
+                sku: product.sku,
+                imageUrl: product.imageUrl
+            };
+        }
+      });
     
     if (invoiceItems.length === 0) {
         return;
@@ -357,15 +458,36 @@ export class InvoiceFormComponent implements OnInit {
       items: invoiceItems,
       subtotal: currentTotals.subtotal,
       totalDiscount: currentTotals.discount,
-      total: currentTotals.total,
+      total: this.roundedTotal(),
       paymentMode: formValue.paymentMode,
       amountPaid: formValue.amountPaid
     };
 
     if (this.isEditMode()) {
+      const originalInvoice = this.invoiceService.getInvoiceById(this.invoiceId()!);
+      if (originalInvoice) {
+        // Revert old stock changes by adding quantities back
+        originalInvoice.items.forEach(item => {
+          if (!item.isCustom) {
+            this.productService.updateStock(item.id, item.cartQuantity);
+          }
+        });
+      }
       this.invoiceService.updateInvoice({ ...finalInvoice, id: this.invoiceId()! });
+      // Apply new stock changes by subtracting new quantities
+      invoiceItems.forEach(item => {
+        if (!item.isCustom) {
+          this.productService.updateStock(item.id, -item.cartQuantity);
+        }
+      });
     } else {
       this.invoiceService.addInvoice({ ...finalInvoice, id: this.invoiceService.generateNewInvoiceId() });
+      // Apply stock changes for new invoice
+      invoiceItems.forEach(item => {
+        if (!item.isCustom) {
+          this.productService.updateStock(item.id, -item.cartQuantity);
+        }
+      });
     }
 
     this.router.navigate(['/invoices']);
@@ -376,7 +498,6 @@ export class InvoiceFormComponent implements OnInit {
     const control = this.invoiceForm.get(controlName);
     if (control) {
         const roundedValue = Math.round(control.value || 0);
-        // Only set value if it has changed to prevent potential cycles if blur fires unnecessarily
         if (control.value !== roundedValue) {
             control.setValue(roundedValue);
         }
@@ -455,7 +576,7 @@ export class InvoiceFormComponent implements OnInit {
     if (!file) return;
 
     const customer = this.invoiceForm.get('customer')?.value;
-    const total = this.totals().total;
+    const total = this.roundedTotal();
     const invoiceId = this.isEditMode() ? this.invoiceId()! : this.draftInvoiceId;
 
     const fallbackShare = () => {
